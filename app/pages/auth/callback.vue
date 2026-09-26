@@ -10,7 +10,7 @@ onMounted(async () => {
   if (!result.success) {
     callbackStatus.value = 'error'
     errorMessage.value = result.error || authError.value || 'Authentication failed'
-  } else if (result.user?.signedIn || user.value?.signedIn) {
+  } else if (result.user?.signedIn) {
     callbackStatus.value = 'success'
     setTimeout(() => {
       router.push('/protected')

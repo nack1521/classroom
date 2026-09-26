@@ -68,8 +68,13 @@ export function getSupabaseClient(
   }
 
   // Browser context (document.cookie)
+  // Single-owner PKCE callback exchange: disable library auto-detection to eliminate race conditions
   if (!browserClientInstance) {
-    browserClientInstance = createBrowserClient(supabaseUrl, supabaseKey)
+    browserClientInstance = createBrowserClient(supabaseUrl, supabaseKey, {
+      auth: {
+        detectSessionInUrl: false,
+      },
+    })
   }
   return browserClientInstance
 }

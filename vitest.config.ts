@@ -6,6 +6,9 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
   },
+  define: {
+    'import.meta.client': true,
+  },
   resolve: {
     alias: {
       '~': path.resolve(import.meta.dirname, './app'),

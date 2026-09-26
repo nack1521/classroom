@@ -16,15 +16,45 @@ export function authGuard(
   }
 }
 
+/**
+ * Route middleware handler executing authentication verification and route protection.
+ */
+export async function authMiddlewareHandler(
+  to: RouteLocationNormalized,
+  from: RouteLocationNormalized,
+  auth: { user: { value: { signedIn: boolean } | null }; isConfigured: boolean; checkVerifiedUser: () => Promise<any> },
+  redirectFn: (path: string) => any
+) {
+  const requiresAuth = !checkRouteAccess(to.path, false).allowed
+
+  let isAuthenticated = false
+
+  if (requiresAuth) {
+    if (auth.isConfigured) {
+      try {
+        const verifiedResult = await auth.checkVerifiedUser()
+        isAuthenticated = Boolean(verifiedResult?.signedIn)
+      } catch {
+        isAuthenticated = false
+      }
+    } else {
+      isAuthenticated = false
+    }
+  } else {
+    if (!auth.user.value?.signedIn && auth.isConfigured) {
+      try {
+        await auth.checkVerifiedUser()
+      } catch {}
+    }
+    isAuthenticated = Boolean(auth.user.value?.signedIn)
+  }
+
+  return authGuard(to, from, isAuthenticated, redirectFn)
+}
+
 export default typeof defineNuxtRouteMiddleware === 'function'
   ? defineNuxtRouteMiddleware(async (to, from) => {
-      const { user, isConfigured, checkVerifiedUser } = useAuth()
-
-      if (!user.value?.signedIn && isConfigured) {
-        await checkVerifiedUser()
-      }
-
-      const isAuthenticated = Boolean(user.value?.signedIn)
-      return authGuard(to, from, isAuthenticated, (path) => navigateTo(path))
+      const auth = useAuth()
+      return authMiddlewareHandler(to, from, auth, (path) => navigateTo(path))
     })
   : (authGuard as any)

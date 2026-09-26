@@ -1,0 +1,16 @@
+# Handoff 006E2A — repair browser diagnostic harness only (DRAFT)
+
+**Repo:** `/Users/nack/Classroom`; branch `fix/gate0-auth`. Read `docs/REVIEW-006E2-gate0.md`, `docs/HANDOFF-ANTIGRAVITY-006E2-browser-red.md`, and `tests/browser-diagnostic-006e2.mjs`. Inspect `git status --porcelain=v1 --untracked-files=all` first; preserve the entire dirty worktree. Protected five-auth-file pre-task diff hash: `2b50de1002c41ef3d18bc0bc01b42ec61a96887a8e714a9473f3b3161538cb75` (compare before/after; not a clean baseline).
+
+## One test-harness correction
+
+Make the existing browser diagnostic a reliable, honest gate **without fixing the app**. Limit edits to `tests/browser-diagnostic-006e2.mjs` and `docs/HANDOFF-006E2A-antigravity-result.md`. Do not edit `app/`, other tests/docs, config, dependencies, lockfile or schema. No account/cloud changes, real data, commit, push, or deployment.
+
+1. **Always clean up.** Remove `process.exit()` from any running `try`/`catch` path before `finally`; set exit status and return/finish so `browser.close()`, child Nuxt termination/exit, and loopback stub close are awaited even on expected RED or unexpected error. On each `--case=controls`, `--case=red`, and default run, verify no owned Nuxt child remains listening or orphaned. Do not kill unrelated processes; identify only the runner's own child. Ensure missing build/module exits loudly before starting services.
+2. **Readiness and error hygiene.** If the built server never reaches HTTP-ready state within the bounded timeout, fail explicitly with a safe message and clean up. Do not print raw error objects that can include callback URLs/cookies/tokens; report a fixed category and sanitized location/step. Keep the test's synthetic data out of logs.
+3. **Assert the hard-reload characterization.** In the revoked-token case, require a fresh Auth verification request on hard reload, redirect to `/?auth_required=true`, and absence of the verified banner. If this control fails, report a *separate unexpected failure* rather than the known SPA RED.
+4. **Make controls honest.** Keep the still-valid session showing `/protected` with the same identity as a **current-behavior route-rendering control** (today its SPA request delta is 0). Do not call that a fresh-verification control. Add a distinct assertion for the desired still-valid policy—fresh verification on deliberate SPA navigation and allowed access—which is expected RED on current source. The revoked-token policy also remains expected RED. Keep the absent-session control passing. Identify each case and exit status separately so no failure is silently classified as expected.
+
+## Proof and stop
+
+After fresh `npm run build`, run controls and both focused contract cases against the real built app using `PLAYWRIGHT_MODULE_PATH=/Users/nack/.hermes/hermes-agent/node_modules/playwright/index.mjs`. Prove expected RED failures occur at the navigation verification assertions (not setup/timeout), passing route-rendering/absent/hard-reload controls, no owned process leak, and missing-artifact negative behavior. Run `npm run lint`, `npm run typecheck`, `npm run test`, `git diff --check`. Record exact sanitized commands, exit codes, case outcomes, changed paths, and protected-production hash in the result file. Stop for Hermes independent review. **No production guard fix in this task.**

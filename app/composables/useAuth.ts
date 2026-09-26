@@ -9,7 +9,7 @@ import {
 } from '../utils/auth'
 import { getSupabaseClient } from '../utils/supabaseClient'
 
-export function useAuth() {
+export function useAuth(explicitEvent?: any) {
   const config = useRuntimeConfig()
   const supabaseUrl = (config.public.supabaseUrl as string) || ''
   const supabaseKey = (config.public.supabaseKey as string) || ''
@@ -21,33 +21,52 @@ export function useAuth() {
   const isLoading = useState<boolean>('auth-loading', () => false)
   const authError = useState<string | null>('auth-error', () => null)
   const signOutError = useState<string | null>('auth-signout-error', () => null)
+  const stateGeneration = useState<number>('auth-state-generation', () => 0)
 
   function getClient() {
-    return getSupabaseClient(supabaseUrl, supabaseKey)
+    return getSupabaseClient(supabaseUrl, supabaseKey, explicitEvent)
   }
 
   /**
-   * Verifies identity using client.auth.getUser() instead of trusting local getSession().
+   * Pure resolution of verified identity using client.auth.getUser().
+   * Pure: DOES NOT mutate user.value or shared state.
    */
-  async function checkVerifiedUser(): Promise<SafeUserDisplay | null> {
+  async function fetchVerifiedUser(): Promise<SafeUserDisplay | null> {
     if (!configured) {
-      user.value = null
       return null
     }
 
     const client = getClient()
     if (!client) {
-      user.value = null
       return null
     }
 
     const res = await resolveVerifiedUser(client)
     if (res.verified && res.user) {
-      user.value = res.user
       return res.user
     }
 
-    user.value = null
+    return null
+  }
+
+  /**
+   * Verifies identity using client.auth.getUser() and updates user.value
+   * guarded by a generation counter to prevent race conditions.
+   */
+  async function checkVerifiedUser(): Promise<SafeUserDisplay | null> {
+    const gen = ++stateGeneration.value
+
+    if (!configured) {
+      user.value = null
+      return null
+    }
+
+    const verified = await fetchVerifiedUser()
+    if (gen === stateGeneration.value) {
+      user.value = verified
+      return verified
+    }
+
     return null
   }
 
@@ -78,9 +97,10 @@ export function useAuth() {
             user.value = verifiedUser
           },
           (err) => {
-            authError.value = err?.message || 'Error updating user verification'
+            authError.value = 'Failed to update authentication state. Please refresh the page.'
           },
-          () => checkVerifiedUser()
+          () => fetchVerifiedUser(), // PURE: Never mutates user.value inside verifyFn
+          () => stateGeneration.value
         )
 
         client.auth.onAuthStateChange((event, session) => {
@@ -88,7 +108,7 @@ export function useAuth() {
         })
       }
     } catch (err: any) {
-      authError.value = err?.message || 'Error initializing authentication'
+      authError.value = 'Failed to initialize authentication. Please refresh the page and try again.'
       user.value = null
     } finally {
       isLoading.value = false
@@ -128,20 +148,26 @@ export function useAuth() {
       })
 
       if (error) {
-        authError.value = error.message
+        authError.value = 'Failed to initiate Google sign-in. Please try again.'
       }
     } catch (err: any) {
-      authError.value = err?.message || 'Failed to initiate Google OAuth sign-in.'
+      authError.value = 'Failed to initiate Google sign-in. Please try again.'
     }
   }
 
   /**
    * Signs out user.
-   * If sign-out fails, visibly reports error and does NOT silently navigate home.
+   * If sign-out encounters an error:
+   * - If local session was removed by the SDK (standard remote error path), clears user.value,
+   *   reports safe generic warning that remote revocation was not confirmed, and navigates home.
+   * - If local session genuinely remains active, reports warning without clearing user.
    */
   async function signOut() {
     authError.value = null
     signOutError.value = null
+
+    // Immediately bump generation to invalidate any in-flight verification
+    const gen = ++stateGeneration.value
 
     const client = getClient()
     if (!client) {
@@ -151,12 +177,33 @@ export function useAuth() {
     }
 
     const res = await executeSignOut(client, () => {
-      user.value = null
+      if (gen === stateGeneration.value) {
+        user.value = null
+      }
     })
 
     if (!res.success) {
-      signOutError.value = `${res.error?.message || 'Sign out request failed'}. ${res.warning || ''}`
+      // Safe, generic warning without echoing raw provider/SDK error message
+      signOutError.value =
+        res.warning || 'Sign-out status is unconfirmed: remote revocation was not confirmed.'
+
+      if (res.localSessionCleared === true) {
+        // Confirmed local deletion: null user state and navigate home
+        if (gen === stateGeneration.value) {
+          user.value = null
+        }
+        await navigateTo('/')
+      } else if (res.localSessionState === 'unknown') {
+        // Unconfirmed status: do not assert a signed-out identity, but navigate home
+        // so the uncertainty warning is visible on the public route rather than leaving
+        // a stale "Authentication Verified" protected banner.
+        await navigateTo('/')
+      }
       return
+    }
+
+    if (gen === stateGeneration.value) {
+      user.value = null
     }
 
     await navigateTo('/')
@@ -169,6 +216,7 @@ export function useAuth() {
   async function handleCallback(fullUrlOrParams?: string) {
     isLoading.value = true
     authError.value = null
+    const gen = ++stateGeneration.value
 
     let targetUrl = fullUrlOrParams
     if (!targetUrl && import.meta.client) {
@@ -191,12 +239,16 @@ export function useAuth() {
     const result = await processAuthCallback(client, targetUrl || '')
     if (!result.success) {
       authError.value = result.error
-      user.value = null
+      if (gen === stateGeneration.value) {
+        user.value = null
+      }
       isLoading.value = false
       return result
     }
 
-    user.value = result.user
+    if (gen === stateGeneration.value) {
+      user.value = result.user
+    }
     isLoading.value = false
     return result
   }
@@ -211,6 +263,7 @@ export function useAuth() {
     siteUrl,
     initAuth,
     checkVerifiedUser,
+    fetchVerifiedUser,
     signInWithGoogle,
     signOut,
     handleCallback,

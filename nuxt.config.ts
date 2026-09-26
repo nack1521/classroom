@@ -3,6 +3,9 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
   telemetry: false,
+  experimental: {
+    asyncContext: true,
+  },
   runtimeConfig: {
     public: {
       supabaseUrl: process.env.SUPABASE_URL || '',

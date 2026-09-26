@@ -1,0 +1,17 @@
+# REVIEW-006B1 — sign-out unknown-state correction
+
+**Reviewed:** 2026-09-25  
+**Branch:** `fix/gate0-auth`  
+**Verdict:** The specific unreadable-`getSession()` defect from REVIEW-006B is independently fixed for thrown, error-returning and missing reader cases. **Do not equate this with Gate 0 acceptance**: six callback/error contracts remain RED, and a pending SDK `SIGNED_IN` event race plus rendered UI warning remain unverified. No commit/push/deploy or real account used.
+
+## Independent execution
+
+- Protected production diff SHA-256 now `c80e736d8c3563eef92296edb1c7db46369f598b82c50761f35862a4a7f2b805` (pre-006B1: `8f25f40b5122d648368caab59c824414eb991b5aeab122f78f11895940aa3564`). Recent source edits are confined to the sign-out files `app/utils/auth.ts` and `app/composables/useAuth.ts`; pre-existing dirty files remain.
+- `npm run lint`, `npm run typecheck`, `npm run build`: exit 0. Fresh-build `npm run test`: exit 1 with **57 passed and exactly 6 previously known RED callback/error tests**; no unexpected failure. Review 002 sign-out/integration: 20/20; controlled real-SDK Case 2: 3/3 (8 unrelated tests skipped by filter); SSR regression: 15/15. Missing built artifact negative control exits 1 explicitly, rather than counting its four HTTP cases as passed. `git diff --check`: exit 0.
+- Read-only direct probe of production `executeSignOut()` after remote error: throwing, error-returning or missing `getSession()` each yields `localSessionState:'unknown'`, **does not** invoke clear callback and does **not** claim local completion; clean `session:null` yields `confirmed_absent` with clear; present fixture yields `confirmed_present` without clear. This corroborates `tests/review002-integration.test.ts:554-708` and `app/utils/auth.ts:98-205`.
+
+## Limits and scope discipline
+
+- `inspectLocalSessionState()` labels **any truthy** `sessionRes.data.session` as `confirmed_present` (`app/utils/auth.ts:109-110`). Independent synthetic probe: a string, empty object or array is classified present. This does not falsely claim local deletion (the original blocker), but it does **not** validate session shape as the 006B1 result implies. No evidence here that the installed SDK normally returns those malformed values. Treat “confirmed_present” as *non-null value observed*, not a verified valid authenticated session; never authorize access from it. If future work asserts malformed data is `unknown`, add a precise test/schema criterion rather than another vague patch round.
+- Unknown-state app test uses a mocked client-factory response and Nuxt globals; it checks state/message/navigation, not rendered public-page text. The real-SDK 500 test still verifies the confirmed-absent branch. A queued SDK `SIGNED_IN` event verification racing failed sign-out is still untested; the existing in-flight test pauses a **direct** `checkVerifiedUser()` call, not SDK event delivery (`tests/diagnostic-handoff006a.test.ts:313-404`). Preserve these labels.
+- Callback identity mismatch and provider/SDK error reflection are untouched and account for the six expected RED tests. This branch is not ready for Git merge or a school OAuth pilot. The next implementation slices should use their already-failing contracts, not rerun the broad Handoff 006. Any later final local acceptance review should explicitly check the pending SDK event race and error rendering without inventing success from green unit counts.

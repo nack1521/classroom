@@ -1,0 +1,24 @@
+# Antigravity handoff 006B — sign-out state contract only
+
+**Workspace:** `/Users/nack/Classroom`, branch `fix/gate0-auth`  
+**Status:** Submitted to Antigravity IDE on 2026-09-25; panel showed the sent message and **Working**. This is **this bounded sign-out slice only**. Do not start broad `HANDOFF-ANTIGRAVITY-006.md` (HOLD).  
+**Baseline:** All existing dirty/untracked files must be preserved. Before submission the diff of protected production files (`app/`, `nuxt.config.ts`, `package.json`, `package-lock.json`, `vitest.config.ts`) hashed to SHA-256 `bdaf30ab67067effe0eb7679fe59fef4c5264581692d457c4e8cbedef7b7cc03`; capture your own before/after changed-file list and distinguish pre-existing edits from this slice.
+
+## Read first
+
+Read `docs/REVIEW-006A-gate0.md`, `docs/HANDOFF-006A-antigravity-result.md`, `docs/REVIEW-005-gate0.md`, installed auth-js sign-out implementation, `app/composables/useAuth.ts`, `app/utils/auth.ts:90-116,234-277`, `app/pages/index.vue`, `app/pages/protected.vue`, and the existing sign-out tests. No real accounts, secrets, cloud dashboard changes, deploy, commit or push.
+
+## Contract to implement — one behavior slice
+
+The installed SDK can return an error from remote logout **after it removes local session and emits `SIGNED_OUT`**. For this observed remote-500 case, never show a signed-in user locally or say the local persisted session remains active. Show a **safe, generic** warning that *remote revocation was not confirmed* (do not echo provider/SDK `error.message`), and move to the public page where `signOutError` is visible; do not silently claim the remote logout succeeded. Preserve successful logout behavior. If an error genuinely leaves a local session present, do not claim logout succeeded either: verify/reconcile local presence and show a warning, without trusting `getSession().user` for authorization. If that second error class cannot be modeled truthfully with this SDK, report its limit and avoid a blanket “retain user on all errors” claim.
+
+## Strict RED → GREEN order
+
+1. **Test first:** Extend the local Auth stub/SDK characterization from `tests/diagnostic-handoff006a.test.ts:120-221` into a production-`useAuth()` test. Use a real installed browser/auth SDK instance backed by a synthetic storage session and loopback `/user` + remote `/logout` 500, a subscribed `onAuthStateChange` callback via `initAuth()`, and actual `useAuth().signOut()`. Only mock Nuxt globals (`useRuntimeConfig`, `useState`, `navigateTo`) and the client-factory seam to hand the real SDK instance into the composable; do not mock `signOut()` or synthesize a `SIGNED_OUT` event. Assert before/after local session presence, event type, final `auth.user.value`, sanitized `auth.signOutError.value`, and navigation/visible warning on the public route. Wait for auth initialization/subscription so the test cannot pass by missing the event. Prove this test **fails for the expected current behavior** before modifying `app/`, and capture a sanitized RED summary.
+2. Include a controlled pending `SIGNED_IN` verification **already started before** the remote-500 sign-out when feasible, then release it and assert it cannot restore user state. If deterministic SDK triggering needs another test seam, stop and state the boundary rather than substitute a pure helper test. Keep the existing successful-signout in-flight regression.
+3. **Minimal GREEN fix:** Correct only the sign-out state/error policy in `app/composables/useAuth.ts`, the sign-out helper in `app/utils/auth.ts` if needed, and the existing public/protected warning display only if necessary. Remove/adjust the old mock test in `tests/review002-integration.test.ts:446-493` so its fixture reflects an actual persisted-session outcome; do not merely delete the test. Never use untrusted `getSession().user` as verified identity. Avoid calling Supabase methods from inside the auth-state callback.
+4. Re-run the focused real-SDK app test and existing sign-out tests to GREEN. Run `npm run lint`, `npm run typecheck`, `npm run build`, then `npm run test` against the fresh build. The other **six** RED callback/error contract tests from 006A must remain RED until a later authorized slice; report them distinctly from unexpected regressions. Verify SSR 15/15 still passes and `git diff --check` is clean.
+
+## Stop condition and report
+
+Write `docs/HANDOFF-006B-antigravity-result.md`: exact RED then GREEN commands/exits, SDK event/local-session/UI/navigation observations, affected files, six remaining expected RED cases, any untested in-flight/retained-session path, sanitized error output, and no production edits outside the sign-out slice. Preserve dirty worktree and stop for Hermes independent review. **Do not implement callback identity or provider-error fixes now; do not start Handoff 006C or an OAuth pilot.**

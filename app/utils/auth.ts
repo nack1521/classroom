@@ -17,10 +17,14 @@ export interface CallbackHashResult {
   errorDescription: string | null
 }
 
+export type LocalSessionState = 'confirmed_present' | 'confirmed_absent' | 'unknown'
+
 export interface SignOutResult {
   success: boolean
   error: any
   warning?: string
+  localSessionCleared?: boolean
+  localSessionState?: LocalSessionState
 }
 
 export interface VerifiedUserResult {
@@ -88,29 +92,115 @@ export function checkRouteAccess(path: string, isAuthenticated: boolean): RouteA
 }
 
 /**
+ * Rigorously classifies the local session state into confirmed_present, confirmed_absent, or unknown.
+ * A thrown error, returned error, or missing/invalid data is classified as unknown.
+ */
+export async function inspectLocalSessionState(
+  auth?: { getSession?: () => Promise<{ data: { session: any } | null; error?: any }> }
+): Promise<LocalSessionState> {
+  if (typeof auth?.getSession !== 'function') {
+    return 'unknown'
+  }
+  try {
+    const sessionRes = await auth.getSession()
+    if (!sessionRes || sessionRes.error) {
+      return 'unknown'
+    }
+    if (sessionRes.data && sessionRes.data.session) {
+      return 'confirmed_present'
+    }
+    if (sessionRes.data && sessionRes.data.session === null) {
+      return 'confirmed_absent'
+    }
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
  * Signs out the user from Supabase.
- * If Supabase reports an error, we do NOT clear local session silently; we report failure visibly.
+ * Strictly distinguishes confirmed local deletion from confirmed presence and unknown/unreadable state.
  */
 export async function executeSignOut(
-  client: { auth: { signOut: () => Promise<{ error: any }> } },
+  client: {
+    auth: {
+      signOut: () => Promise<{ error: any }>
+      getSession?: () => Promise<{ data: { session: any } | null; error?: any }>
+    }
+  },
   clearLocalSession: () => void
 ): Promise<SignOutResult> {
   try {
     const { error } = await client.auth.signOut()
+
+    const sessionState = await inspectLocalSessionState(client.auth)
+
     if (error) {
+      if (sessionState === 'confirmed_absent') {
+        clearLocalSession()
+        return {
+          success: false,
+          error,
+          warning: 'Sign out completed locally, but remote revocation was not confirmed by the authentication provider.',
+          localSessionCleared: true,
+          localSessionState: 'confirmed_absent',
+        }
+      }
+
+      if (sessionState === 'confirmed_present') {
+        return {
+          success: false,
+          error,
+          warning: 'Remote sign-out failed. Local persisted session state may remain active on the provider.',
+          localSessionCleared: false,
+          localSessionState: 'confirmed_present',
+        }
+      }
+
+      // sessionState === 'unknown'
       return {
         success: false,
         error,
-        warning: 'Remote sign-out failed. Local persisted session state may remain active on the provider.',
+        warning: 'Sign-out status is unconfirmed: remote revocation failed and local persisted session state could not be verified.',
+        localSessionCleared: false,
+        localSessionState: 'unknown',
       }
     }
+
     clearLocalSession()
     return { success: true, error: null }
   } catch (err) {
+    const sessionState = await inspectLocalSessionState(client?.auth)
+
+    if (sessionState === 'confirmed_absent') {
+      clearLocalSession()
+      return {
+        success: false,
+        error: err,
+        warning: 'Sign out completed locally, but remote revocation was not confirmed by the authentication provider.',
+        localSessionCleared: true,
+        localSessionState: 'confirmed_absent',
+      }
+    }
+
+    if (sessionState === 'confirmed_present') {
+      return {
+        success: false,
+        error: err,
+        warning: 'Remote sign-out threw an exception. Persisted session status is unknown.',
+        localSessionCleared: false,
+        localSessionState: 'confirmed_present',
+      }
+    }
+
+    // sessionState === 'unknown'
     return {
       success: false,
       error: err,
-      warning: 'Remote sign-out threw an exception. Persisted session status is unknown.',
+      warning: 'Sign-out status is unconfirmed: remote sign-out threw an exception and local persisted session state could not be verified.',
+      localSessionCleared: false,
+      localSessionState: 'unknown',
     }
   }
 }
@@ -234,12 +324,14 @@ export async function resolveVerifiedUser(
 export function createSafeAuthStateHandler(
   onUserVerified: (user: SafeUserDisplay | null) => void,
   onError: (err: any) => void,
-  verifyFn: () => Promise<SafeUserDisplay | null>
+  verifyFn: () => Promise<SafeUserDisplay | null>,
+  getGeneration?: () => number
 ) {
   let sequence = 0
 
   return function handleAuthStateChange(event: string, session: any): void {
-    const currentSeq = ++sequence
+    const startSeq = ++sequence
+    const startGen = getGeneration ? getGeneration() : startSeq
 
     if (event === 'SIGNED_OUT' || !session?.user) {
       onUserVerified(null)
@@ -248,18 +340,24 @@ export function createSafeAuthStateHandler(
 
     // Schedule verification asynchronously without awaiting in callback
     setTimeout(async () => {
-      // If a later event occurred (e.g. SIGNED_OUT), abort
-      if (currentSeq !== sequence) {
+      const isStale = () => {
+        if (getGeneration && getGeneration() !== startGen) {
+          return true
+        }
+        return sequence !== startSeq
+      }
+
+      if (isStale()) {
         return
       }
 
       try {
         const verified = await verifyFn()
-        if (currentSeq === sequence) {
+        if (!isStale()) {
           onUserVerified(verified)
         }
       } catch (err) {
-        if (currentSeq === sequence) {
+        if (!isStale()) {
           onError(err)
           onUserVerified(null)
         }
@@ -268,21 +366,57 @@ export function createSafeAuthStateHandler(
   }
 }
 
+export interface AuthCallbackClient {
+  auth: {
+    exchangeCodeForSession?: (code: string) => Promise<{ data: any; error: any }>
+    setSession?: (tokens: { access_token: string; refresh_token: string }) => Promise<{ data: any; error: any }>
+    getUser: () => Promise<any>
+    getSession?: () => Promise<any>
+    signOut?: (options?: { scope?: 'global' | 'local' | 'others' }) => Promise<{ error: any }>
+  }
+}
+
+/**
+ * Quarantines an ambiguous locally-persisted SDK session created during callback processing
+ * that subsequently failed identity verification.
+ * Uses explicit local scope only ({ scope: 'local' }) to avoid globally signing out other devices.
+ */
+async function quarantineLocalSession(client: AuthCallbackClient | null | undefined): Promise<void> {
+  if (typeof client?.auth?.signOut === 'function') {
+    try {
+      await client.auth.signOut({ scope: 'local' })
+    } catch {
+      // Local removal is attempted by the SDK even if remote logout fails
+    }
+  }
+}
+
 /**
  * Processes OAuth callback:
- * 1. Checks provider error in query and hash first. If denied, rejects immediately
- *    without checking existing session.
- * 2. Checks that the callback URL contains OAuth response parameters (PKCE code or access_token).
- *    A direct visit with an old session is rejected and NOT claimed as a new OAuth login.
- * 3. If valid response params are present, verifies user with getUser().
+ * 1. Checks provider error in query and hash first. If denied, rejects immediately.
+ * 2. Validates OAuth response parameters: requires a non-empty PKCE code or access_token.
+ *    A direct visit, empty code, or marker token without access_token is rejected.
+ * 3. Performs PKCE code exchange via client.auth.exchangeCodeForSession,
+ *    or establishes session via client.auth.setSession.
+ * 4. Checks that the exchange/setup returned an actual session and user. If null or error,
+ *    rejects immediately and NEVER falls back to any prior user.
+ * 5. Only if the exchange/session setup succeeds, verifies identity with getUser().
+ *    An old verified session cannot mask an invalid or failing OAuth callback.
  */
 export async function processAuthCallback(
-  client: { auth: { getUser: () => Promise<any> } },
+  client: AuthCallbackClient,
   callbackUrlOrParams: string
 ): Promise<{ success: boolean; error: string | null; user: SafeUserDisplay | null }> {
   const parsed = parseAuthCallbackUrl(callbackUrlOrParams)
   if (parsed.hasError) {
-    const errorMsg = `OAuth Provider Error: ${parsed.error}${parsed.errorDescription ? ` - ${parsed.errorDescription}` : ''}`
+    let errorMsg: string
+    if (parsed.error === 'access_denied') {
+      errorMsg = 'OAuth sign-in was denied (access_denied). Please verify permissions and try again.'
+    } else if (parsed.error === 'interaction_required') {
+      errorMsg = 'OAuth sign-in requires user interaction (interaction_required). Please sign in again.'
+    } else {
+      errorMsg = 'Authentication failed: The authentication provider reported an error.'
+    }
     return {
       success: false,
       error: errorMsg,
@@ -290,23 +424,34 @@ export async function processAuthCallback(
     }
   }
 
-  // Check whether the URL contains an OAuth response payload (code or access_token)
-  let hasOAuthResponse = false
+  let code: string | null = null
+  let accessToken: string | null = null
+  let refreshToken: string | null = null
+
   try {
     const url = new URL(callbackUrlOrParams, 'http://localhost:3000')
-    if (url.searchParams.has('code')) {
-      hasOAuthResponse = true
+    const queryCode = url.searchParams.get('code')
+    if (queryCode && queryCode.trim().length > 0) {
+      code = queryCode.trim()
     }
-    if (url.hash && (url.hash.includes('access_token=') || url.hash.includes('token_type='))) {
-      hasOAuthResponse = true
+
+    if (url.hash && url.hash.length > 1) {
+      const hashParams = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash)
+      const hashAccessToken = hashParams.get('access_token')
+      const hashRefreshToken = hashParams.get('refresh_token')
+      if (hashAccessToken && hashAccessToken.trim().length > 0) {
+        accessToken = hashAccessToken.trim()
+        refreshToken = hashRefreshToken ? hashRefreshToken.trim() : ''
+      }
     }
   } catch {
-    if (callbackUrlOrParams.includes('code=') || callbackUrlOrParams.includes('access_token=')) {
-      hasOAuthResponse = true
+    const codeMatch = callbackUrlOrParams.match(/[?&]code=([^&#]+)/)
+    if (codeMatch && codeMatch[1]?.trim().length > 0) {
+      code = decodeURIComponent(codeMatch[1].trim())
     }
   }
 
-  if (!hasOAuthResponse) {
+  if (!code && !accessToken) {
     return {
       success: false,
       error: 'No authorization code or OAuth response found in callback URL.',
@@ -314,11 +459,125 @@ export async function processAuthCallback(
     }
   }
 
+  let establishedUserId: string | null = null
+
+  if (code) {
+    if (typeof client.auth?.exchangeCodeForSession !== 'function') {
+      return {
+        success: false,
+        error: 'Client does not support PKCE code exchange.',
+        user: null,
+      }
+    }
+
+    let exchangeRes: { data: any; error: any }
+    try {
+      exchangeRes = await client.auth.exchangeCodeForSession(code)
+    } catch {
+      return {
+        success: false,
+        error: 'Failed to exchange authorization code: Authentication provider rejected the authorization code.',
+        user: null,
+      }
+    }
+
+    if (exchangeRes.error) {
+      return {
+        success: false,
+        error: 'Failed to exchange authorization code: Authentication provider rejected the authorization code.',
+        user: null,
+      }
+    }
+
+    if (!exchangeRes.data?.session || !exchangeRes.data?.user) {
+      return {
+        success: false,
+        error: 'OAuth code exchange did not return a valid authenticated session.',
+        user: null,
+      }
+    }
+
+    const sessionUserId = exchangeRes.data.session?.user?.id ? String(exchangeRes.data.session.user.id).trim() : null
+    const exchangeUserId = exchangeRes.data.user?.id ? String(exchangeRes.data.user.id).trim() : null
+
+    if (!sessionUserId || !exchangeUserId || sessionUserId !== exchangeUserId) {
+      await quarantineLocalSession(client)
+      return {
+        success: false,
+        error: 'Authentication failed: OAuth session identity could not be verified.',
+        user: null,
+      }
+    }
+    establishedUserId = sessionUserId
+  } else if (accessToken) {
+    if (typeof client.auth?.setSession !== 'function') {
+      return {
+        success: false,
+        error: 'Client does not support token session setup.',
+        user: null,
+      }
+    }
+
+    let sessionRes: { data: any; error: any }
+    try {
+      sessionRes = await client.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || '',
+      })
+    } catch {
+      return {
+        success: false,
+        error: 'Failed to establish session: OAuth token could not be verified by the authentication provider.',
+        user: null,
+      }
+    }
+
+    if (sessionRes.error) {
+      return {
+        success: false,
+        error: 'Failed to establish session: OAuth token could not be verified by the authentication provider.',
+        user: null,
+      }
+    }
+
+    if (!sessionRes.data?.session || !sessionRes.data?.user) {
+      return {
+        success: false,
+        error: 'OAuth token setup did not return a valid authenticated session.',
+        user: null,
+      }
+    }
+
+    const sessionUserId = sessionRes.data.session?.user?.id ? String(sessionRes.data.session.user.id).trim() : null
+    const responseUserId = sessionRes.data.user?.id ? String(sessionRes.data.user.id).trim() : null
+
+    if (!sessionUserId || !responseUserId || sessionUserId !== responseUserId) {
+      await quarantineLocalSession(client)
+      return {
+        success: false,
+        error: 'Authentication failed: OAuth session identity could not be verified.',
+        user: null,
+      }
+    }
+    establishedUserId = sessionUserId
+  }
+
   const verifiedResult = await resolveVerifiedUser(client)
   if (!verifiedResult.verified || !verifiedResult.user) {
+    await quarantineLocalSession(client)
     return {
       success: false,
-      error: verifiedResult.error?.message || 'No verified user session returned by authentication provider.',
+      error: 'Authentication failed: Verified user session could not be retrieved from the authentication provider.',
+      user: null,
+    }
+  }
+
+  const verifiedUserId = verifiedResult.user.id ? String(verifiedResult.user.id).trim() : null
+  if (!establishedUserId || !verifiedUserId || establishedUserId !== verifiedUserId) {
+    await quarantineLocalSession(client)
+    return {
+      success: false,
+      error: 'Authentication failed: OAuth session identity could not be verified.',
       user: null,
     }
   }

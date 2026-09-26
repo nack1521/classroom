@@ -59,6 +59,17 @@ By the end of this project, I should be able to explain and demonstrate:
 - **Proposed publication scopes:** `public` (any visitor), `course` (only enrolled learner / authorized teacher), and `draft` (teacher only). An optional `all signed-in users` scope requires a separate decision. Never publish student identities, submissions, or grades in a public article.
 - **Open governance questions:** Does the school authorize use of student records in this independently developed site and with AI-assisted import? What data fields are truly necessary? How are accounts activated, errors corrected, records retained/deleted, and access removed when a student changes class or term?
 
+### Discovery — Google-only student onboarding (2026-09-25; partial decisions approved)
+
+- **Nack's proposed change:** Keep Google as the only sign-in/sign-up method, but do not require `@rpr.ac.th`. A newly arriving account starts as a student; only an administrator may grant teacher/admin privileges. On first sign-in, collect a title (นาย/นาง/นางสาว/ด.ช./ด.ญ.), Thai given/family names, a unique five-digit student identifier, a teacher-created class selected from a list, and a class number selected from 1–45. The detailed form, schema and real-data handling still require a reviewed spec.
+- **Approved decisions (2026-09-25):** Any Google account may request student registration, but access remains pending Nack's approval; no automatic course enrollment from claimed fields. The five-digit student identifier must be unique across the system **for all time**, not reset per academic year. Preserve leading zeros and define an explicit policy for correction, deletion, alumni and never-reuse before implementation.
+- **Recommended distinction for review:** Google authentication, student profile completion, teacher-approved enrollment, and teacher/admin role assignment are separate steps. Self-entered name, ID, class and class number must not by themselves authorize access to restricted course content; an unknown Google account should remain pending until matched/approved. A pending ID claim must not reserve the identifier against its rightful owner: record duplicate claims for private administrator review, then enforce lifetime uniqueness on approved student records and retain an explicit retired-ID reservation after deactivation if the no-reuse rule is literal. Privileged roles require an administrator-controlled assignment and a bootstrap owner, not self-service registration.
+- **Roster available (Nack confirmed 2026-09-25):** Nack has a student roster for manual comparison of submitted name, five-digit ID, class and class number before approval. This confirms the existence of a review source, not permission to upload it to this chat, a repository, AI tools or the app; protected intake and school authorization remain release gates. Use fictitious records in the spec/tests.
+- **Approved review workflow (Nack confirmed 2026-09-25):** Nack will teach and onboard one class at a time (~40 students) and manually compare/approve requests one by one. No roster upload, bulk approval, or auto-match is required for the first release.
+- **Open product decisions:** What happens for mismatch/duplicate claims? May the student edit after submitting, or must an administrator correct, transfer, suspend and archive records? Is class number unique within a class and school year? Who may see the fields? How does the first admin bootstrap? Does school authorization cover collection/hosting of real student profiles and Google account use?
+- **Gate impact (updated 2026-09-26):** This onboarding direction revises the prior school-email assumption and requires an update to the live-release spec/tickets before implementation. Gate 0 auth spike passed in the agreed local scope (`docs/REVIEW-006F1-gate0.md`) with an owner-reported school-managed OAuth pilot; a student-designated account pilot, course authorization/RLS, school approval for real student data processing/hosting, and release readiness remain separate gates.
+- **OAuth pilot readiness (Nack reported 2026-09-26):** Nack has a personal Google account and a school Google account for testing. The teacher responsible for the school's Google accounts has authorized use of the school account for this project test; Nack has described the project to the teacher, who expressed interest. This is evidence of permission to attempt the account pilot, **not** blanket permission to collect/host student records or proof that a student-designated account can sign in. Do not put credentials/tokens in chat or repo; record only outcomes.
+
 ### Primary product
 
 A personal workspace for learning and teaching. It may contain:
@@ -215,6 +226,9 @@ Use this for decisions that would otherwise be forgotten or relitigated.
 | 2026-09-24 | Course posts require enrollment; public posts need no login | Nack confirmed the audience rule | All signed-in learners read all courses | If the school changes access policy |
 | 2026-09-24 | Hermes owns product/technical decisions; Antigravity implements coding tickets | Nack requested separate planning and implementation roles | Hermes writes and codes everything | Review after first delegated ticket |
 | 2026-09-24 | Nuxt + Supabase selected for the isolated OAuth spike, not yet for live school rollout | Aligns with Vue/Postgres learning, split services, and deadline | Self-host Directus/Postgres before launch | After OAuth pilot and deployment check |
+| 2026-09-25 | Any Google account may request registration; student/course access stays pending Nack's approval | Avoids school-domain dependency without granting access from self-entered fields | School-domain-only or invite-only request | If school policy or approval workload changes |
+| 2026-09-25 | Student identifier is exactly five digits and unique across all years | Nack wants no duplicate/reuse | Unique per academic year | If the school's identifier lifecycle contradicts it |
+| 2026-09-25 | Approve student requests individually while onboarding one ~40-person class at a time | Nack will teach use of the system class by class and can verify against his roster | Bulk approval/import at launch | If approval workload exceeds classroom capacity |
 
 ## 11. Work Log
 
@@ -301,13 +315,14 @@ Add one entry whenever a meaningful work session ends.
 - **Next smallest step:** Review ticket breakdown, choose stack, and initialize repository/working agreement before Ticket 1.
 - **Blockers / questions:** Image-storage provider and access design, authentication choice, and publication defaults.
 
-## Learning checkpoint — where Nack is now
+## Learning checkpoint — where Nack is now (updated 2026-09-24)
 
-- **Currently practicing:** discovery (actors, teacher/learner journeys, references, constraints), requirements vs recommendations, V1 scope, and acceptance criteria. Artifact: `docs/SPEC-001-course-posts.md` (draft).
-- **Next:** review drafted vertical-slice tickets → UI flow and technology decision → TDD implementation → independent review → demo/retrospective.
-- **Skills actually available and relevant:** `ai-assisted-product-discovery` (local), `hermes-agent` (builtin), `test-driven-development` (builtin), `requesting-code-review` (builtin), and UI/design skills such as `design-md` (builtin). Load them only for the matching phase.
-- **Not installed from GitHub/hub:** `grill-with-docs`, `to-spec`, `to-tickets`, `implement`, `code-review` as named community workflows. Do not present earlier conceptual descriptions as evidence that these skills ran.
-- **Candidate to inspect later:** official `grill-me` (adversarial plan interview). Do not install or broadly enable third-party skills before reviewing their source and need.
+- **Current SDLC practice:** discovery, access rules, specs and vertical-slice tickets are drafted; now practicing a bounded implementation → automated checks → independent review → correction loop on the Gate 0 Nuxt/Supabase authentication spike. This is not yet an accepted Gate 0 or the first complete teacher-to-learner article feature. The repeated auth findings demonstrate why passing tests and an agent's completion claim are not sufficient.
+- **Tools used, not just discussed:** Hermes plans, delegates and reviews; Antigravity IDE codes from a written handoff; independent review (including a subagent) checks claims; local tests/lint/typecheck/build and HTTP probes provide limited evidence. A private GitHub WIP snapshot was pushed on `main` (`cb68158551f0`); correction work is isolated on local branch `fix/gate0-auth`. Neither a PR nor deployment has happened. No claim of strict test-first TDD is made for the current spike.
+- **Immediate gate (updated 2026-09-25 after handoff 005):** Antigravity completed handoff 005; Hermes reran 45 tests/lint/typecheck/build and a post-build test run. A separate controlled-stub probe confirms the production SSR cookie → default middleware → `useAuth()` → `getUser()` boundary locally, and installed SDK browser auto PKCE exchange was disabled as intended. Independent review `docs/REVIEW-005-gate0.md` still rejects local Gate 0: callback may report an old, different user after a successful exchange; the installed SDK removes local session and emits `SIGNED_OUT` on some remote sign-out errors despite the app's retain-user claim; arbitrary callback error text can expose codes/tokens; built-server tests silently pass without `.output`. `docs/HANDOFF-ANTIGRAVITY-006.md` is prepared but **not submitted**. Real school OAuth and live-user/privacy gates remain separate before October 28.
+- **Next tool-learning sequence:** (1) finish Gate 0 review and a real authorized OAuth pilot; (2) settle the first article flow/UI and implement small approved tickets with deliberate test-first practice where feasible; (3) use a Git branch, PR, CI and independent review before merging; (4) critique the functioning UI with design references, considering Hallmark only if its actual instructions suit the IDE; (5) deploy, rehearse access/restore, and write a learning retrospective. Subagent/loop automation and model-routing/Jev experiments come after a repeatable measured workflow, not as a substitute for the launch gates.
+- **Available skills, not proof of use:** `ai-assisted-product-discovery`, `hermes-agent`, `test-driven-development`, `requesting-code-review`, and UI/design skills such as `design-md`. Named community workflows `grill-with-docs`, `to-spec`, `to-tickets`, `implement`, and `code-review` were not installed from GitHub/hub when checked. Inspect a third-party skill before adoption; Hallmark was reviewed as a possible later UI aid, not installed or used for auth.
+- **Approved next integration experiment (after the current IDE task):** Nack agreed to trial Antigravity CLI (`agy`) on one small, non-sensitive, bounded task rather than automate the IDE GUI. Wait for Nack's completion notice and independently review Gate 0 first; do not interrupt the running agent. Before installing or authenticating, verify current official CLI documentation and agree on the exact pilot task and permissions. Run it in an isolated branch/worktree, compare handoff reliability, output readability, review effort and cost with the IDE path, and stop if CLI cannot provide a verifiable result. `agy` was not found in PATH during the initial check; nothing was installed, authenticated, or submitted for this experiment yet. CLI use must not be represented as control of an existing IDE conversation.
 
 ## Stack discovery — decision pending (2026-09-24)
 
@@ -422,11 +437,91 @@ Add one entry whenever a meaningful work session ends.
 - `docs/REVIEW-003-gate0.md` records independently corroborated blockers: a stale `getUser()` result can restore signed-in UI after sign-out because `checkVerifiedUser()` mutates state before the sequence guard; SSR tests construct cookie events but do not connect them to production middleware and auth verification; an arbitrary callback `code` plus an old verified session can report a false success. No evidence of an RLS bypass; real school OAuth and authenticated reload remain untested.
 - **Decision:** Gate 0 remains unaccepted. Next work should correct those precise issues and demonstrate the true request/cookie/middleware boundary; do not represent passing mocks as proof of school sign-in or authorize a student rollout.
 
-### 2026-09-24 — Gate 0 correction brief and GitHub plan
+### 2026-09-24 — Gate 0 correction brief and private GitHub snapshot
 
-- Prepared `docs/HANDOFF-ANTIGRAVITY-004.md` for Nack's review; not yet submitted to IDE. It scopes a race-safe verified auth state, OAuth callback success tied to the actual code exchange, and SSR tests crossing production middleware/request cookies/Auth verification. Requires independent local review and leaves live school OAuth pilot separate.
-- Git repository is on `main` with no commits and no remote; `gh` CLI is unavailable in this environment. `.env` is absent, and `.gitignore` excludes `.env`, build outputs, and dependencies. A narrow candidate-credential signature scan of currently untracked source/docs found no hits; this does not certify the repo safe to publish. No student roster or real account data has been added.
-- **Recommendation:** GitHub is appropriate for version control before launch, not a deploy or release approval. Prefer a private repository while school sharing/hosting policy is unresolved. After manual file/secret review, make an initial snapshot commit (clearly marked WIP if Gate 0 remains open); use a fix branch for the auth corrections and push only after confirming the chosen remote/visibility. A clean Gate 0 review is a useful milestone before merging to `main`, not a prerequisite for private WIP history. Do not push credentials or real student data even to private GitHub.
+- Submitted `docs/HANDOFF-ANTIGRAVITY-004.md` to Antigravity IDE after Nack approved the next work. It scopes a race-safe verified auth state, OAuth callback success tied to the actual code exchange, and SSR tests crossing production middleware/request cookies/Auth verification. IDE showed the task working; completion and independent review remain pending. The live school OAuth pilot is separate.
+- Nack made `nack1521/classroom` private; visibility was checked before pushing. A reviewed WIP snapshot was committed as `cb68158551f0` and pushed to private `origin/main`; the remote ref was verified to match. A local `fix/gate0-auth` branch isolates the correction. `.env` was absent at the snapshot check and ignored; no real student roster or account data was intentionally added. Private visibility does not make secrets safe to commit.
+- **Learning distinction:** Git history and a working IDE agent are not a passed Gate 0, reviewed PR, deployment, or permission to onboard real students. Review the correction and actual auth behavior before accepting Gate 0 or merging its branch.
+
+### 2026-09-25 — Gate 0 handoff 004 independent review
+
+- **Goal:** Verify Antigravity's auth-race, callback, and SSR integration corrections independently.
+- **What I did:** Inspected IDE completion, reviewed changed source/tests, reran 38 tests, lint, typecheck, build and fresh local HTTP probes; reproduced callback false success with synthetic clients and obtained a separate read-only reviewer verdict.
+- **Artifacts changed:** `docs/REVIEW-004-gate0.md`, prepared (not submitted) `docs/HANDOFF-ANTIGRAVITY-005.md`, and this planning paper. Implementation remains Antigravity's uncommitted work on `fix/gate0-auth`.
+- **Evidence/decision:** All automated checks passed but old-session/reused-code callback success and sign-out race remain; SSR tests still replace the production composable. Gate 0 not accepted; no merge, correction push, cloud account, or deployment.
+- **Next smallest step:** Nack reviews the new bounded handoff and explicitly approves IDE submission if desired. Keep the Antigravity CLI pilot separate from the unresolved auth correction.
+
+### 2026-09-25 — Gate 0 handoff 005 independent review
+
+- **Goal:** Verify the updated callback, race handling and real SSR boundary against the previously failing criteria.
+- **What I did:** Inspected source/tests and IDE result, reran 45 tests, lint, typecheck, build and a post-build test run; reproduced a callback identity mismatch and error-message marker exposure with synthetic clients. Two independent read-only reviewers checked actual installed SDK behavior and exercised the built Nuxt app against a local Auth stub.
+- **Artifacts changed:** `docs/REVIEW-005-gate0.md`, prepared (not submitted) `docs/HANDOFF-ANTIGRAVITY-006.md`, and this paper. Antigravity's implementation is still uncommitted on `fix/gate0-auth`.
+- **Evidence/decision:** Local SSR cookie/request isolation is materially improved and browser auto PKCE exchange is disabled, but callback identity binding, actual SDK sign-out failure semantics, safe error display, and fail-closed built-app tests need a small correction. Gate 0 is not accepted; no real school account used or cloud changes made.
+- **Next smallest step:** Obtain Nack's explicit approval before submitting handoff 006; after a passing local review, arrange an authorized school Google OAuth pilot and authenticated reload without sharing credentials in chat.
+
+### 2026-09-25 — Student self-registration discovery proposal
+
+- **Goal:** Evaluate Google-only sign-up without a school-domain requirement, student profile fields, and admin-controlled privileged roles.
+- **What I did:** Recorded Nack's proposed onboarding fields and separated Google identity, profile completion, teacher-reviewed enrollment, and administrator role assignment; flagged the guessable-ID and self-selected-class access risk.
+- **Artifacts changed:** Discovery proposal and this work-log entry in `PLANNING_PAPER.md`.
+- **Evidence:** Nack's planning message; no real student data or account was used.
+- **Decision made:** Nack approved open Google-account requests, one-by-one manual approval against his roster while teaching each ~40-person class, and a five-digit student identifier unique across all years. Duplicate/correction handling, class/year lifecycle, and school data authority remain open before SPEC-002 or tickets change.
+- **Next smallest step:** Review `docs/SPEC-003-student-onboarding-draft.md` with Nack, especially claim corrections, roll-number uniqueness, first-admin bootstrap and data authority; complete Gate 0 auth regression before any registration implementation.
+- **Blockers / questions:** Gate 0 remains open; school/hosting permissions and authorized student Google sign-in remain external release gates.
+
+### 2026-09-25 — Gate 0 protected-navigation review and next bounded task
+
+- **Goal:** Remove stale authenticated UI access after a denied callback without revoking an independently valid older session.
+- **What I did:** Independently reviewed Antigravity's 006E3 route-guard correction through fresh build, focused and full tests, and synthetic browser navigation; prepared a test-first 006E4 handoff for raw auth notices outside callback.
+- **Artifacts changed:** `docs/REVIEW-006E3-gate0.md`, `docs/HANDOFF-ANTIGRAVITY-006E4-safe-auth-notices.md`, `docs/GATE0-RESUME.md`, and this work-log entry.
+- **Evidence/decision:** 92/92 Vitest and five browser scenarios pass for the protected-navigation slice. Gate 0 is still open; next boundaries are safe non-callback errors, ambiguous-identity quarantine, real-SDK race, rendered callback success, and authorized real Google OAuth. No school account or roster was used.
+- **Next smallest step:** Nack submits the narrow 006E4 prompt to Antigravity if desired, then Hermes independently reviews it. Do not start registration implementation from SPEC-003 yet.
+- **Blockers / questions:** Live OAuth configuration, school authorization and a student-designated test account remain external dependencies; no fixed Gate 0 completion date can be promised without them.
+
+### 2026-09-25 — Gate 0 safe notices and remaining-evidence matrix
+
+- **Goal:** Remove raw SDK/provider errors from the public auth notice and reduce repeated Gate 0 handoff planning without granting a broad production fix.
+- **What I did:** Independently reviewed 006E4, reran focused/full tests, build, lint, typecheck and browser regression, checked the actual home-page notice binding, then consolidated remaining acceptance boundaries in one plan.
+- **Artifacts changed:** `docs/REVIEW-006E4-gate0.md`, `docs/GATE0-REMAINING-PLAN.md`, test-only `docs/HANDOFF-ANTIGRAVITY-006E5A-mismatch-diagnostic.md`, updated `docs/GATE0-RESUME.md`, and this log.
+- **Evidence/decision:** 98/98 Vitest, five browser navigation cases and local checks pass. Accept the four fixed public error categories; the agent's fake template renderer is not browser evidence. Gate 0 still needs mismatched SDK-session quarantine, actual in-flight SDK event race, rendered callback success, and authorized live Google OAuth.
+- **Next smallest step:** Nack may submit only 006E5A for test-only mismatch diagnosis; Hermes reviews before any production correction. Later rows share one matrix but retain separate stop points.
+- **Blockers / questions:** External Google/Supabase configuration and school-account authorization; real student data and onboarding remain out of scope.
+
+### 2026-09-25 — Gate 0 mismatch persistence RED
+
+- **Goal:** Test whether a failed new callback can leave an ambiguous SDK session that later regains protected access.
+- **What I did:** Independently reran 006E5A real-SDK/loopback diagnostics and built-browser controls; corrected a browser evidence gap with a scratch-only deliberate SPA click; scoped the next RED→GREEN correction.
+- **Artifacts changed:** `docs/REVIEW-006E5A-gate0.md`, `docs/HANDOFF-ANTIGRAVITY-006E5B-local-quarantine.md`, `docs/GATE0-REMAINING-PLAN.md`, `docs/GATE0-RESUME.md`, and this log.
+- **Evidence/decision:** Focused 7 pass/1 expected RED; full 105 pass/1 expected RED. The callback rejects synthetic A-versus-B identity, but SDK storage remains and later SPA or SSR protected access admits B. The agent browser runner mislabeled a full navigation as SPA and exits 0 on RED; the next handoff repairs these tests before touching one production seam. No real provider behavior was inferred from this synthetic contradiction.
+- **Next smallest step:** Nack may submit only 006E5B for mismatch-specific local containment; Hermes reviews before row B real-SDK race work.
+- **Blockers / questions:** Safe local-session removal under remote failure and unknown storage states; authorized real OAuth remains external.
+
+### 2026-09-25 — Gate 0 local-quarantine correction review
+
+- **Goal:** Independently verify whether 006E5B closed the ambiguous callback/session boundary, including cleanup-failure cases.
+- **What I did:** Rebuilt, reran focused/full/browser checks, exercised a scratch-only protected SSR request and injected a throwing local sign-out into the actual callback utility. A second read-only reviewer checked the same seam independently.
+- **Artifacts changed:** `docs/REVIEW-006E5B-gate0.md`, `docs/HANDOFF-ANTIGRAVITY-006E5C-failure-boundary-diagnostic.md`, `docs/GATE0-REMAINING-PLAN.md`, `docs/GATE0-RESUME.md`, and this log. No production edit by Hermes.
+- **Evidence/decision:** Ordinary mismatch tests are GREEN (focused 9/9, full 107/107; browser controls/contracts pass), but injected cleanup throw returned callback failure while storage remained present and later B verification permitted protected access. Incomplete response after simulated storage change also remained present. Checked-in browser runner reloads redirected home, not protected SSR, although a separate scratch request to `/protected` redirects in the ordinary fixture. **Row A not accepted**; no Row B authorization.
+- **Next smallest step:** Nack may submit only test-only 006E5C to characterize failure boundaries and correct protected SSR evidence; stop for Hermes scope/policy decision before any broader production changes.
+- **Blockers / questions:** Robust fail-closed containment when local persistence cannot be confirmed absent may require another production seam. Authorized live OAuth remains external.
+
+### 2026-09-26 — Gate 0 failure-boundary diagnostic review
+
+- **Goal:** Verify the test-only 006E5C diagnosis and repair the protected SSR evidence gap without changing production.
+- **What I did:** Ran fresh build, lint/typecheck, focused/full Vitest, and both browser diagnostics; inspected the five fault-injected RED fixtures, matching controls, and unchanged protected-file diff hash.
+- **Artifacts changed:** `docs/REVIEW-006E5C-gate0.md`, `docs/GATE0-REMAINING-PLAN.md`, `docs/GATE0-RESUME.md`, and this log. No production edit by Hermes.
+- **Evidence/decision:** 006E5A focused 9/9 passes; 006E5C focused 4 controls pass/5 policy RED; full 111 pass/5 RED across 10 files. Normal browser mismatch now explicitly checks a deliberate SPA click and a fresh document `/protected` request; both redirect. Fault-injected sign-out throw/missing method or incomplete post-persistence responses retain a session, then admit B through app-wired route verification. Accept diagnostic only; Row A and Gate 0 remain RED. Missing method/incomplete response are synthetic stress cases, not confirmed live SDK behavior.
+- **Next smallest step:** Settle a durable fail-closed design and production scope that survives SSR/hard reload; convert broken-state characterization assertions to desired policy contracts before correction. Keep Row B on hold.
+- **Blockers / questions:** Need a threat-model/scope decision for cleanup failure or unreadable persistence; live authorized OAuth remains external.
+
+### 2026-09-26 — Gate 0 local auth-spike sign-off and next product gate
+
+- **Goal:** Close a finite, independently reviewed authentication spike without claiming enrollment or deployment readiness.
+- **What I did:** Bounded the threat model to installed SDK/actual browser behavior; independently reviewed ordinary mismatch, protected SPA/fresh SSR, rendered callback success and failure, and a natural SDK `SIGNED_IN` race. Nack privately tested personal and authorized school-managed Google accounts for sign-in, protected navigation/reload, sign-out, and signed-out denial.
+- **Artifacts:** `docs/GATE0-AUTH-POLICY.md`, `docs/GATE0-LIVE-PILOT-CHECKLIST.md`, `docs/REVIEW-006F1-gate0.md`, and updated `docs/GATE0-RESUME.md`.
+- **Evidence/decision:** Fresh build/lint/typecheck and browser contracts passed; Vitest 116 passed with six explicitly skipped fault-injection stress cases that remain RED when run separately. **Gate 0 passed only for the agreed local auth-spike scope.** This is not a release, student enrollment authorization, real-data permission, or proof for student-designated Workspace accounts.
+- **Next smallest step:** Review `docs/SPEC-003-student-onboarding-draft.md` open decisions with Nack, reconcile SPEC-002/TICKETS-002, then implement one synthetic-data onboarding slice behind server/database authorization. Confirm school data-processing/hosting authority and a student-designated login pilot before live class rollout.
+- **Blockers / questions:** Initial admin bootstrap, duplicate/correction policy, roll-number lifecycle, student-data retention and school hosting approval, course/article RLS, and deployment/backup rehearsal. Six stress failures remain future hardening debt.
 
 ## 12. Current Backlog
 
@@ -439,12 +534,12 @@ Add one entry whenever a meaningful work session ends.
 - [x] Draft first feature spec: `docs/SPEC-001-course-posts.md` (no code authorized yet).
 - [ ] Create repository working agreement.
 - [x] Select Nuxt + Supabase for the isolated Gate 0 spike; production choice remains conditional on results.
-- [x] Re-scope the demo plan for October 28 as SPEC-002/TICKETS-002; school authorization and actual login tests remain open release gates.
+- [x] Re-scope the demo plan for October 28 as SPEC-002/TICKETS-002; school data authorization and student-designated login remain open release gates.
 - [x] Draft launch-specific `docs/SPEC-002-live-classroom-release.md` and `docs/TICKETS-002-live-release.md` (not implemented).
-- [x] Confirm and submit bounded Gate 0 coding handoff to Antigravity IDE; the coding result exists. Independent review and fixes remain open before acceptance.
+- [x] Confirm, implement, and independently sign off the bounded Gate 0 local auth spike (`docs/REVIEW-006F1-gate0.md`); this is not a deployment or permission to use student records.
 - [ ] Decide onboarding for ~200 real learners and confirm authority for roster use before launch.
 - [ ] Obtain school IT confirmation for Google OAuth with student accounts and external hosting; test authorized student login.
-- [x] Choose personal Google Cloud ownership for Classroom OAuth; draft `docs/SPIKE-001-school-google-login.md` (not yet executed).
+- [x] Choose personal Google Cloud ownership for Classroom OAuth; owner-reported personal and authorized school-managed account pilot passed. Student-designated account restrictions remain untested.
 - [ ] Review remaining spec assumptions and implementation decisions before coding.
 
 ### Next
