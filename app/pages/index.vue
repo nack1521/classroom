@@ -94,6 +94,24 @@ const callbackUrl = computed(() => `${siteUrl.value}/auth/callback`)
             Sign Out
           </button>
 
+          <NuxtLink
+            v-if="user?.signedIn"
+            to="/apply"
+            class="btn btn-primary"
+            id="apply-student-btn"
+          >
+            Student Application / Status
+          </NuxtLink>
+
+          <NuxtLink
+            v-if="user?.signedIn"
+            to="/learn"
+            class="btn btn-outline"
+            id="learn-reader-btn"
+          >
+            ห้องเรียนออนไลน์ (Learn)
+          </NuxtLink>
+
           <NuxtLink to="/protected" class="btn btn-outline" id="test-protected-btn">
             Test Protected Route (/protected)
           </NuxtLink>

@@ -78,7 +78,20 @@ export function buildOAuthRedirectUrl(siteUrl: string): string {
 export function checkRouteAccess(path: string, isAuthenticated: boolean): RouteAccessResult {
   const normalized = path === '/' ? '/' : path.replace(/\/+$/, '')
 
-  if (normalized === '/protected' || normalized.startsWith('/protected/')) {
+  if (
+    normalized === '/protected' ||
+    normalized.startsWith('/protected/') ||
+    normalized === '/apply' ||
+    normalized.startsWith('/apply/') ||
+    normalized === '/review' ||
+    normalized.startsWith('/review/') ||
+    normalized === '/admin' ||
+    normalized.startsWith('/admin/') ||
+    normalized === '/teacher' ||
+    normalized.startsWith('/teacher/') ||
+    normalized === '/learn' ||
+    normalized.startsWith('/learn/')
+  ) {
     if (!isAuthenticated) {
       return {
         allowed: false,
@@ -619,3 +632,53 @@ export async function evaluateSsrRouteGuard(
   return { allowed: true, redirect: null, user: verifiedUser }
 }
 
+export type AppRole = 'admin' | 'teacher'
+
+export interface SafeUserRoles {
+  isAdmin: boolean
+  isTeacher: boolean
+  roles: AppRole[]
+}
+
+/**
+ * Pure helper to fetch the authenticated user's assigned roles from user_roles table.
+ * Bound to the user's provider-verified UUID.
+ * Fails closed on any error, missing client, or missing userId.
+ */
+export async function fetchUserRoles(
+  client: any,
+  userId?: string | null
+): Promise<SafeUserRoles> {
+  const emptyRoles: SafeUserRoles = {
+    isAdmin: false,
+    isTeacher: false,
+    roles: [],
+  }
+
+  if (!client || !userId || typeof client.from !== 'function') {
+    return emptyRoles
+  }
+
+  try {
+    const { data, error } = await client
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+
+    if (error || !Array.isArray(data)) {
+      return emptyRoles
+    }
+
+    const roles = data
+      .map((r: any) => r?.role)
+      .filter((r: any): r is AppRole => r === 'admin' || r === 'teacher')
+
+    return {
+      isAdmin: roles.includes('admin'),
+      isTeacher: roles.includes('teacher'),
+      roles,
+    }
+  } catch {
+    return emptyRoles
+  }
+}

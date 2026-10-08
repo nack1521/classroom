@@ -5,9 +5,13 @@ import {
   processAuthCallback,
   resolveVerifiedUser,
   createSafeAuthStateHandler,
+  fetchUserRoles,
   type SafeUserDisplay,
+  type SafeUserRoles,
 } from '../utils/auth'
 import { getSupabaseClient } from '../utils/supabaseClient'
+import { clearTeacherDraftState } from './useTeacherDrafts'
+import { clearEnrolledReaderState } from './useEnrolledReader'
 
 export function useAuth(explicitEvent?: any) {
   const config = useRuntimeConfig()
@@ -18,10 +22,38 @@ export function useAuth(explicitEvent?: any) {
   const configured = checkConfigured(supabaseUrl, supabaseKey)
 
   const user = useState<SafeUserDisplay | null>('auth-user', () => null)
+  const roles = useState<SafeUserRoles>('auth-roles', () => ({
+    isAdmin: false,
+    isTeacher: false,
+    roles: [],
+  }))
   const isLoading = useState<boolean>('auth-loading', () => false)
   const authError = useState<string | null>('auth-error', () => null)
   const signOutError = useState<string | null>('auth-signout-error', () => null)
   const stateGeneration = useState<number>('auth-state-generation', () => 0)
+
+  function clearStudentApplicationState() {
+    const appState = useState('student-application', () => null)
+    const appUser = useState('student-application-user-id', () => null)
+    const appGen = useState<number>('student-application-generation', () => 0)
+    const appLoading = useState<boolean>('student-application-loading', () => false)
+    const appSubmitting = useState<boolean>('student-application-submitting', () => false)
+    const appError = useState<string | null>('student-application-error', () => null)
+    const appFieldErrors = useState<Record<string, string>>('student-application-field-errors', () => ({}))
+    const appSuccess = useState<string | null>('student-application-success', () => null)
+
+    appGen.value++
+    appState.value = null
+    appUser.value = null
+    appLoading.value = false
+    appSubmitting.value = false
+    appError.value = null
+    appFieldErrors.value = {}
+    appSuccess.value = null
+
+    clearTeacherDraftState()
+    clearEnrolledReaderState()
+  }
 
   function getClient() {
     return getSupabaseClient(supabaseUrl, supabaseKey, explicitEvent)
@@ -58,11 +90,16 @@ export function useAuth(explicitEvent?: any) {
 
     if (!configured) {
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
       return null
     }
 
     const verified = await fetchVerifiedUser()
     if (gen === stateGeneration.value) {
+      if (user.value?.id !== verified?.id) {
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+        clearStudentApplicationState()
+      }
       user.value = verified
       return verified
     }
@@ -76,6 +113,7 @@ export function useAuth(explicitEvent?: any) {
   async function initAuth() {
     if (!configured) {
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
       isLoading.value = false
       return
     }
@@ -83,6 +121,7 @@ export function useAuth(explicitEvent?: any) {
     const client = getClient()
     if (!client) {
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
       isLoading.value = false
       return
     }
@@ -94,22 +133,35 @@ export function useAuth(explicitEvent?: any) {
       if (import.meta.client) {
         const authHandler = createSafeAuthStateHandler(
           (verifiedUser) => {
+            if (user.value?.id !== verifiedUser?.id) {
+              roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+              clearStudentApplicationState()
+            }
             user.value = verifiedUser
           },
           (err) => {
             authError.value = 'Failed to update authentication state. Please refresh the page.'
+            roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+            clearStudentApplicationState()
           },
           () => fetchVerifiedUser(), // PURE: Never mutates user.value inside verifyFn
           () => stateGeneration.value
         )
 
         client.auth.onAuthStateChange((event, session) => {
+          if (event === 'SIGNED_OUT') {
+            ++stateGeneration.value
+            user.value = null
+            roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+            clearStudentApplicationState()
+          }
           authHandler(event, session)
         })
       }
     } catch (err: any) {
       authError.value = 'Failed to initialize authentication. Please refresh the page and try again.'
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
     } finally {
       isLoading.value = false
     }
@@ -168,10 +220,13 @@ export function useAuth(explicitEvent?: any) {
 
     // Immediately bump generation to invalidate any in-flight verification
     const gen = ++stateGeneration.value
+    clearStudentApplicationState()
 
     const client = getClient()
     if (!client) {
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+      clearStudentApplicationState()
       await navigateTo('/')
       return
     }
@@ -179,6 +234,8 @@ export function useAuth(explicitEvent?: any) {
     const res = await executeSignOut(client, () => {
       if (gen === stateGeneration.value) {
         user.value = null
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+        clearStudentApplicationState()
       }
     })
 
@@ -191,6 +248,8 @@ export function useAuth(explicitEvent?: any) {
         // Confirmed local deletion: null user state and navigate home
         if (gen === stateGeneration.value) {
           user.value = null
+          roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+          clearStudentApplicationState()
         }
         await navigateTo('/')
       } else if (res.localSessionState === 'unknown') {
@@ -204,9 +263,31 @@ export function useAuth(explicitEvent?: any) {
 
     if (gen === stateGeneration.value) {
       user.value = null
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+      clearStudentApplicationState()
     }
 
     await navigateTo('/')
+  }
+
+  /**
+   * Fetches the verified user's assigned roles from user_roles table.
+   */
+  async function fetchRoles(): Promise<SafeUserRoles> {
+    const currentUserId = user.value?.id
+    const gen = stateGeneration.value
+    if (!configured || !currentUserId) {
+      roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+      return roles.value
+    }
+
+    const client = getClient()
+    const fetched = await fetchUserRoles(client, currentUserId)
+    if (gen === stateGeneration.value && user.value?.id === currentUserId) {
+      roles.value = fetched
+      return fetched
+    }
+    return { isAdmin: false, isTeacher: false, roles: [] }
   }
 
   /**
@@ -225,6 +306,10 @@ export function useAuth(explicitEvent?: any) {
 
     if (!configured) {
       authError.value = 'Callback failed: Supabase credentials are missing.'
+      if (gen === stateGeneration.value) {
+        user.value = null
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+      }
       isLoading.value = false
       return { success: false, error: authError.value, user: null }
     }
@@ -232,6 +317,10 @@ export function useAuth(explicitEvent?: any) {
     const client = getClient()
     if (!client) {
       authError.value = 'Supabase client is not available.'
+      if (gen === stateGeneration.value) {
+        user.value = null
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+      }
       isLoading.value = false
       return { success: false, error: authError.value, user: null }
     }
@@ -241,12 +330,17 @@ export function useAuth(explicitEvent?: any) {
       authError.value = result.error
       if (gen === stateGeneration.value) {
         user.value = null
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
       }
       isLoading.value = false
       return result
     }
 
     if (gen === stateGeneration.value) {
+      if (user.value?.id !== result.user?.id) {
+        roles.value = { isAdmin: false, isTeacher: false, roles: [] }
+        clearStudentApplicationState()
+      }
       user.value = result.user
     }
     isLoading.value = false
@@ -255,17 +349,23 @@ export function useAuth(explicitEvent?: any) {
 
   return {
     user,
+    roles,
     isLoading,
     isConfigured: configured,
     authError,
     signOutError,
     supabaseUrl,
     siteUrl,
+    get client() {
+      return getClient()
+    },
     initAuth,
     checkVerifiedUser,
     fetchVerifiedUser,
+    fetchRoles,
     signInWithGoogle,
     signOut,
     handleCallback,
+    clearStudentApplicationState,
   }
 }

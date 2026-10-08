@@ -54,7 +54,10 @@ export async function authMiddlewareHandler(
 
 export default typeof defineNuxtRouteMiddleware === 'function'
   ? defineNuxtRouteMiddleware(async (to, from) => {
+      const nuxtApp = useNuxtApp()
       const auth = useAuth()
-      return authMiddlewareHandler(to, from, auth, (path) => navigateTo(path))
+      return authMiddlewareHandler(to, from, auth, (path) =>
+        nuxtApp.runWithContext(() => navigateTo(path))
+      )
     })
   : (authGuard as any)
